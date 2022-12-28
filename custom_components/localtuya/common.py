@@ -1,5 +1,6 @@
 """Code shared between all platforms."""
 import asyncio
+import json.decoder
 import logging
 import time
 from datetime import timedelta
@@ -199,20 +200,19 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
 
         if self._interface is not None:
             try:
-                self.debug("Retrieving initial state")
-                status = await self._interface.status()
-                if status is None:
-                    raise Exception("Failed to retrieve status")
-
-                self._interface.start_heartbeat()
-                self.status_updated(status)
-
-            except Exception as ex:  # pylint: disable=broad-except
                 try:
+                    self.debug("Retrieving initial state")
+                    status = await self._interface.status()
+                    if status is None:
+                        raise Exception("Failed to retrieve status")
+
+                    self._interface.start_heartbeat()
+                    self.status_updated(status)
+                except Exception as ex:  # pylint: disable=broad-except
                     if (self._default_reset_dpids is not None) and (
                         len(self._default_reset_dpids) > 0
                     ):
-                        self.debug(
+                        self.exception(
                             "Initial state update failed, trying reset command "
                             + "for DP IDs: %s",
                             self._default_reset_dpids,
@@ -226,26 +226,16 @@ class TuyaDevice(pytuya.TuyaListener, pytuya.ContextualLogger):
 
                         self._interface.start_heartbeat()
                         self.status_updated(status)
+                    else:
+                        self.exception("Initial state update failed, giving up")
+                        raise
+            except (UnicodeDecodeError, json.decoder.JSONDecodeError):
+                self.exception("Initial state update failed, trying key update")
+                await self.update_local_key()
 
-                except UnicodeDecodeError as e:  # pylint: disable=broad-except
-                    self.exception(
-                        f"Connect to {self._dev_config_entry[CONF_HOST]} failed: %s",
-                        type(e),
-                    )
-                    if self._interface is not None:
-                        await self._interface.close()
-                        self._interface = None
-
-                except Exception as e:  # pylint: disable=broad-except
-                    self.exception(
-                        f"Connect to {self._dev_config_entry[CONF_HOST]} failed"
-                    )
-                    if "json.decode" in str(type(e)):
-                        await self.update_local_key()
-
-                    if self._interface is not None:
-                        await self._interface.close()
-                        self._interface = None
+                if self._interface is not None:
+                    await self._interface.close()
+                    self._interface = None
 
         if self._interface is not None:
             # Attempt to restore status for all entities that need to first set
