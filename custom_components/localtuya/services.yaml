@@ -13,3 +13,17 @@ set_dp:
     value:
       description: New value to set
       example: False
+
+set_state:
+  name: Set State
+  description: Set a color/brightness and possibly turn the light on/off.
+  target:
+    entity:
+      integration: localtuya
+      domain: light
+  fields:
+    power:
+      name: Power
+      description: Turn the light on or off. Leave out to keep the power as it is.
+      selector:
+        boolean:

@@ -1,7 +1,6 @@
 """Platform to locally control Tuya-based light devices."""
 import logging
 import textwrap
-from functools import partial
 
 import homeassistant.util.color as color_util
 import voluptuous as vol
@@ -16,10 +15,13 @@ from homeassistant.components.light import (
     SUPPORT_COLOR_TEMP,
     SUPPORT_EFFECT,
     LightEntity,
+    LIGHT_TURN_ON_SCHEMA,
 )
 from homeassistant.const import CONF_BRIGHTNESS, CONF_COLOR_TEMP, CONF_SCENE
+from homeassistant.helpers import entity_platform
+import homeassistant.helpers.config_validation as cv
 
-from .common import LocalTuyaEntity, async_setup_entry
+from .common import LocalTuyaEntity, async_setup_entry as orig_async_setup_entry
 from .const import (
     CONF_BRIGHTNESS_LOWER,
     CONF_BRIGHTNESS_UPPER,
@@ -32,6 +34,12 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+ATTR_POWER = "power"
+
+SERVICE_LOCALTUYA_SET_STATE = "set_state"
+
+LOCALTUYA_SET_STATE_SCHEMA = {**LIGHT_TURN_ON_SCHEMA, ATTR_POWER: cv.boolean}
 
 DEFAULT_MIN_KELVIN = 2700  # MIRED 370
 DEFAULT_MAX_KELVIN = 6500  # MIRED 153
@@ -299,9 +307,20 @@ class LocaltuyaLight(LocalTuyaEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn on or control the light."""
+        await self.set_state(**{**kwargs, ATTR_POWER: True})
+
+    async def async_turn_off(self, **kwargs):
+        """Turn Tuya light off."""
+        await self.set_state(**{**kwargs, ATTR_POWER: False})
+
+    async def set_state(self, **kwargs):
+        """Set the state of a Tuya light.
+
+        This can change configuration without switching it on.
+        """
         states = {}
-        if not self.is_on:
-            states[self._dp_id] = True
+        if ATTR_POWER in kwargs:
+            states[self._dp_id] = kwargs[ATTR_POWER]
         features = self.supported_features
         brightness = None
         if ATTR_EFFECT in kwargs and (features & SUPPORT_EFFECT):
@@ -394,10 +413,6 @@ class LocaltuyaLight(LocalTuyaEntity, LightEntity):
             states[self._config.get(CONF_COLOR_TEMP)] = color_temp
         await self._device.set_dps(states)
 
-    async def async_turn_off(self, **kwargs):
-        """Turn Tuya light off."""
-        await self._device.set_dp(False, self._dp_id)
-
     def status_updated(self):
         """Device status was updated."""
         self._state = self.dps(self._dp_id)
@@ -444,4 +459,15 @@ class LocaltuyaLight(LocalTuyaEntity, LightEntity):
             self._effect = SCENE_MUSIC
 
 
-async_setup_entry = partial(async_setup_entry, DOMAIN, LocaltuyaLight, flow_schema)
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up a Tuya light based on a config entry.
+
+    This just registers the custom localtuya.set_state service and then calls the generic function.
+    """
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_LOCALTUYA_SET_STATE, LOCALTUYA_SET_STATE_SCHEMA, "set_state"
+    )
+    await orig_async_setup_entry(
+        DOMAIN, LocaltuyaLight, flow_schema, hass, entry, async_add_entities
+    )
