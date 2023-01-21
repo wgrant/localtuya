@@ -56,8 +56,9 @@ _LOGGER = logging.getLogger(__name__)
 ENTRIES_VERSION = 2
 
 PLATFORM_TO_ADD = "platform_to_add"
-NO_ADDITIONAL_ENTITIES = "no_additional_entities"
 SELECTED_DEVICE = "selected_device"
+
+NO_ADDITIONAL_ENTITIES = "[no additional entities]"
 
 CUSTOM_DEVICE = "..."
 
@@ -99,10 +100,6 @@ DEVICE_SCHEMA = vol.Schema(
         vol.Optional(CONF_MANUAL_DPS): cv.string,
         vol.Optional(CONF_RESET_DPIDS): str,
     }
-)
-
-PICK_ENTITY_SCHEMA = vol.Schema(
-    {vol.Required(PLATFORM_TO_ADD, default="switch"): vol.In(PLATFORMS)}
 )
 
 
@@ -672,7 +669,7 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_pick_entity_type(self, user_input=None):
         """Handle asking if user wants to add another entity."""
         if user_input is not None:
-            if user_input.get(NO_ADDITIONAL_ENTITIES):
+            if user_input.get(PLATFORM_TO_ADD) == NO_ADDITIONAL_ENTITIES:
                 config = {
                     **self.device_data,
                     CONF_DPS_STRINGS: self.dps_strings,
@@ -696,11 +693,12 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
 
         # Add a checkbox that allows bailing out from config flow if at least one
         # entity has been added
-        schema = PICK_ENTITY_SCHEMA
+        platforms = PLATFORMS
         if self.selected_platform is not None:
-            schema = schema.extend(
-                {vol.Required(NO_ADDITIONAL_ENTITIES, default=True): bool}
-            )
+            platforms = ["[no additional entities]"] + PLATFORMS
+        schema = vol.Schema(
+            {vol.Required(PLATFORM_TO_ADD, default="switch"): vol.In(platforms)}
+        )
 
         return self.async_show_form(step_id="pick_entity_type", data_schema=schema)
 
@@ -784,7 +782,7 @@ class LocalTuyaOptionsFlowHandler(config_entries.OptionsFlow):
                 # new entity added. Let's check if there are more left...
                 user_input = None
                 if len(self.available_dps_strings()) == 0:
-                    user_input = {NO_ADDITIONAL_ENTITIES: True}
+                    user_input = {PLATFORM_TO_ADD: True}
                 return await self.async_step_pick_entity_type(user_input)
 
         if self.editing_device:
